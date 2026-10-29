@@ -1,0 +1,28 @@
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I", "UP", "SIM", "BLE", "RUF", "PL", "ASYNC"]
+ignore = [
+  "PLR0913",  # constructors take what they need
+  "PLR2004",  # protocol constants read better inline
+  "PLR0911",
+  "PLR0912",
+  "PLW0603",  # the TUTK library is a process-wide singleton
+  "PLR0917",
+  "RUF001",
+  "RUF012",   # Home Assistant entities declare _attr_* lists on the class
+]
+
+[tool.ruff.lint.per-file-ignores]
+"furbo_treat_bridge/app/furbo_p2p.py" = ["E501"]  # the licence key is one long string
+"**/tests/*" = ["PLC0415", "PLR2004", "B023", "RUF007", "RUF059"]
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+known-first-party = ["custom_components", "bridge", "furbo_cloud", "furbo_p2p", "server"]
+combine-as-imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "furbo_treat_bridge/tests"]
