@@ -1,0 +1,48 @@
+# Home Assistant add-on: Furbo Treat Bridge
+#
+# Holds the Furbo sign-in and the peer-to-peer link to the camera, and exposes
+# a small token-protected HTTP API the Furbo Treat Launcher integration uses.
+name: Furbo Treat Bridge
+version: "0.1.0"
+slug: furbo_treat_bridge
+description: >-
+  Signs in to Furbo and sends treat commands to your Furbo camera for the
+  Furbo Treat Launcher integration.
+url: https://github.com/archieprichard/FurboTreatLauncher/tree/main/furbo_treat_bridge
+# The TUTK library ships for these two architectures only.
+arch:
+  - amd64
+  - aarch64
+# TUTK opens UDP sockets and hole-punches to the camera and Furbo's relay
+# servers, which needs the host network.
+host_network: true
+init: false
+startup: services
+boot: auto
+ports:
+  8792/tcp: 8792
+ports_description:
+  8792/tcp: Treat API (used by the Furbo Treat Launcher integration)
+options:
+  email: ""
+  password: ""
+  api_token: ""
+  min_interval: 5
+  daily_limit: 20
+  reset_session: false
+  log_level: info
+schema:
+  email: email?
+  password: password?
+  # Shared secret for the integration. Leave blank to have one generated and
+  # printed in this add-on's log.
+  api_token: password?
+  # Minimum seconds between treat requests, so a looping automation cannot
+  # empty the hopper.
+  min_interval: int(0,3600)
+  # Most treats per day across every way of tossing them. 0 turns the cap off.
+  daily_limit: int(0,500)
+  # Turn on, restart the add-on, then turn off again: forgets the stored
+  # Furbo sign-in (after a password change or a different account).
+  reset_session: bool
+  log_level: list(debug|info|warning|error)

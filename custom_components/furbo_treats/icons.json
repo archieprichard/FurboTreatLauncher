@@ -1,0 +1,36 @@
+{
+  "entity": {
+    "button": {
+      "toss_treat": { "default": "mdi:bone" },
+      "treat_sound": { "default": "mdi:bell-ring" }
+    },
+    "number": {
+      "treats_per_day": { "default": "mdi:counter" },
+      "min_gap": { "default": "mdi:timer-sand" },
+      "double_chance": { "default": "mdi:dice-multiple" },
+      "triple_chance": { "default": "mdi:dice-multiple" }
+    },
+    "select": {
+      "schedule_mode": {
+        "default": "mdi:calendar-clock",
+        "state": { "random": "mdi:shuffle-variant" }
+      }
+    },
+    "sensor": {
+      "treats_today": { "default": "mdi:bone" },
+      "next_treat": { "default": "mdi:clock-outline" }
+    },
+    "switch": {
+      "schedule_enabled": { "default": "mdi:calendar-check", "state": { "off": "mdi:calendar-remove" } },
+      "double_launch": { "default": "mdi:numeric-2-circle" },
+      "triple_launch": { "default": "mdi:numeric-3-circle" }
+    },
+    "time": {
+      "window_start": { "default": "mdi:clock-start" },
+      "window_end": { "default": "mdi:clock-end" }
+    }
+  },
+  "services": {
+    "toss_treat": { "service": "mdi:bone" }
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to the Furbo Treat Bridge",
+        "description": "Install and start the Furbo Treat Bridge add-on first. Leave the host and port as they are unless you run the bridge somewhere else. The API token is the one in the add-on's configuration, or the one it printed in its log.\n\n{error}",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "api_token": "API token"
+        }
+      },
+      "code": {
+        "title": "Enter the code Furbo emailed you",
+        "description": "Furbo sent a verification code to the email address in the add-on's configuration. You only need to do this once; the bridge remembers it.",
+        "data": {
+          "code": "Verification code",
+          "send_new_code": "Email me a new code instead"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reconnect to the Furbo Treat Bridge",
+        "description": "The bridge refused the API token. Enter the token from the add-on's configuration or log.\n\n{error}",
+        "data": {
+          "api_token": "API token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the bridge. Is the Furbo Treat Bridge add-on running?",
+      "invalid_auth": "The bridge refused this API token.",
+      "invalid_code": "Furbo did not accept that code. Check it, or ask for a new one.",
+      "code_expired": "That sign-in timed out. Tick the box to get a new code.",
+      "code_resent": "A new code is on its way to your email.",
+      "signing_in": "The bridge is still signing in to Furbo. Try again in a few seconds.",
+      "furbo_login_failed": "The bridge could not sign in to Furbo. Check the email and password in the add-on's configuration, then restart the add-on.",
+      "unknown": "Unexpected error. Check the add-on's log."
+    },
+    "abort": {
+      "already_configured": "This bridge is already set up.",
+      "reauth_successful": "Reconnected."
+    }
+  },
+  "entity": {
+    "button": {
+      "toss_treat": { "name": "Toss treat" },
+      "treat_sound": { "name": "Play treat sound" }
+    },
+    "number": {
+      "treats_per_day": { "name": "Treats per day" },
+      "min_gap": { "name": "Minimum time between treats" },
+      "double_chance": { "name": "Double launch chance" },
+      "triple_chance": { "name": "Triple launch chance" }
+    },
+    "select": {
+      "schedule_mode": {
+        "name": "Schedule mode",
+        "state": {
+          "fixed": "Fixed",
+          "random": "Random"
+        }
+      }
+    },
+    "sensor": {
+      "treats_today": { "name": "Treats today" },
+      "next_treat": { "name": "Next scheduled treat" }
+    },
+    "switch": {
+      "schedule_enabled": { "name": "Treat schedule" },
+      "double_launch": { "name": "Double launch" },
+      "triple_launch": { "name": "Triple launch" }
+    },
+    "time": {
+      "window_start": { "name": "Schedule window start" },
+      "window_end": { "name": "Schedule window end" }
+    }
+  },
+  "services": {
+    "toss_treat": {
+      "name": "Toss treat",
+      "description": "Tosses one or more treats from a Furbo camera.",
+      "fields": {
+        "device_id": {
+          "name": "Camera",
+          "description": "The Furbo camera to toss from."
+        },
+        "count": {
+          "name": "Count",
+          "description": "How many treats, two seconds apart (1 to 5)."
+        }
+      }
+    }
+  }
+}

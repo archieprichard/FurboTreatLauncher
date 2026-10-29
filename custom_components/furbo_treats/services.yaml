@@ -1,0 +1,14 @@
+toss_treat:
+  fields:
+    device_id:
+      required: true
+      selector:
+        device:
+          integration: furbo_treats
+    count:
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 5
+          mode: box
