@@ -99,6 +99,15 @@
       },
       "treat_photos": {
         "name": "Treat photos"
+      },
+      "photo_1s": {
+        "name": "Photo at +1 s"
+      },
+      "photo_2s": {
+        "name": "Photo at +2 s"
+      },
+      "photo_3s": {
+        "name": "Photo at +3 s"
       }
     },
     "time": {
@@ -115,6 +124,9 @@
       },
       "treat_photo_2s": {
         "name": "Treat photo +2 s"
+      },
+      "treat_photo_3s": {
+        "name": "Treat photo +3 s"
       }
     }
   },

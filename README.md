@@ -77,19 +77,20 @@ On the camera's device page:
 | **Triple launch** / **Triple launch chance** | After a double launch, a chance of a third one |
 | **Bonus launch delay** | Seconds from a treat to its double, and from a double to its triple (default 30) |
 | **Next scheduled treat** | When the next one goes; attributes list today's plan and any problem |
-| **Treat photos** | Takes two photos with every toss, 1 and 2 seconds after it (on by default) |
-| **Treat photo +1 s** / **+2 s** | The photos from the most recent toss |
+| **Treat photos** | Main switch for photos with every toss (on by default) |
+| **Photo at +1 s** / **+2 s** / **+3 s** | Which moments after the toss to photograph (+1 s and +2 s on by default) |
+| **Treat photo +1 s** / **+2 s** / **+3 s** | The photos from the most recent toss |
 | **Keep treat photos for** | Days of photos to keep (default 14); older days are deleted at midnight |
 
 ### Treat photos
 
-Every toss (scheduled, double, triple, button or action) takes two photos, 1
-and 2 seconds after the treat leaves. They're saved under **Media → My media →
+Every toss (scheduled, double, triple, button or action) takes a photo at
+each moment you've switched on: 1, 2 and/or 3 seconds after the treat leaves. They're saved under **Media → My media →
 furbo_treats**, in a folder per camera and per day, named like
-`18-40-12_+1s.jpg`. At about 50 photos a night, expect roughly 10–20 MB a day.
+`18-40-12_+1s.jpg`. At two photos a toss and about 26 tosses a night, expect roughly 10–20 MB a day; a third photo adds half again.
 
 To take them, the bridge starts the camera's video just before the toss and
-stops it right after, so a toss with photos takes a few seconds longer. If a
+stops it after the last photo you've switched on, so a toss with photos takes a few seconds longer (about one more with +3 s on). If a
 photo can't be taken (for example, the camera is switched off in the Furbo
 app), the treat is still tossed and the add-on log says why.
 

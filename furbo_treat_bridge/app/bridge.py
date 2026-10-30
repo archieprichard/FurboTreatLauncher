@@ -55,6 +55,9 @@ ERROR = "error"
 DEVICE_FIELDS = ("Id", "DeviceName", "ProductId", "P2PUuid", "P2PAccessToken")
 MAX_BURST = 5  # treats per request
 BURST_SPACING = 2.0  # seconds between treats in one request
+DEFAULT_PHOTO_OFFSETS = (1.0, 2.0)  # seconds after a toss to take photos at
+MAX_PHOTOS = 5
+MAX_PHOTO_OFFSET = 10.0
 
 
 class BridgeError(Exception):
@@ -64,6 +67,26 @@ class BridgeError(Exception):
         super().__init__(message)
         self.kind = kind
         self.extra = extra
+
+
+def photo_offsets(value: Any) -> tuple[float, ...]:
+    """Validated seconds-after-the-toss for photos; the default when not given."""
+    if value is None:
+        return DEFAULT_PHOTO_OFFSETS
+    if (
+        not isinstance(value, (list, tuple))
+        or not 1 <= len(value) <= MAX_PHOTOS
+        or not all(
+            isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v <= MAX_PHOTO_OFFSET
+            for v in value
+        )
+    ):
+        raise BridgeError(
+            "bad_request",
+            f"photo_offsets must be 1 to {MAX_PHOTOS} numbers of seconds, each above 0 "
+            f"and at most {MAX_PHOTO_OFFSET:g}.",
+        )
+    return tuple(sorted({float(v) for v in value}))
 
 
 @dataclass
@@ -392,15 +415,22 @@ class Bridge:
         )
 
     async def toss(
-        self, device_id: str | None = None, count: int = 1, *, photos: bool = False
+        self,
+        device_id: str | None = None,
+        count: int = 1,
+        *,
+        photos: bool = False,
+        photo_offsets: tuple[float, ...] = DEFAULT_PHOTO_OFFSETS,
     ) -> dict[str, Any]:
         """Toss ``count`` treats from one camera, optionally with photos of each.
 
-        With photos, each toss comes back with a JPEG from 1 and 2 seconds after
-        it. A photo that fails is reported, never a reason to fail the toss.
+        With photos, each toss comes back with a JPEG from each of
+        ``photo_offsets`` seconds after it. A photo that fails is reported,
+        never a reason to fail the toss.
         """
         if not 1 <= count <= MAX_BURST:
             raise BridgeError("bad_request", f"count must be between 1 and {MAX_BURST}.")
+        offsets = tuple(sorted(photo_offsets)) or DEFAULT_PHOTO_OFFSETS
         async with self._toss_lock:
             camera = self._pick_camera(device_id)
             self._check_limits(camera, count)
@@ -409,7 +439,9 @@ class Bridge:
                 if i:
                     await asyncio.sleep(BURST_SPACING)
                 if photos:
-                    outcome: TossOutcome = await self._send(camera, lambda link: link.toss_with_photos())
+                    outcome: TossOutcome = await self._send(
+                        camera, lambda link: link.toss_with_photos(offsets)
+                    )
                     entry = {
                         "result": outcome.result,
                         "tossed_at": outcome.tossed_at_epoch,

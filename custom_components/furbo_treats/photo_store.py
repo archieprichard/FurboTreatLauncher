@@ -24,7 +24,7 @@ from typing import Any
 _LOGGER = logging.getLogger(__name__)
 
 FOLDER = "furbo_treats"
-OFFSETS = (1.0, 2.0)
+OFFSETS = (1.0, 2.0, 3.0)
 
 
 def slug(text: str) -> str:

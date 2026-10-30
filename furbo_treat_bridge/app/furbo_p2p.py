@@ -235,17 +235,53 @@ class TossOutcome:
     photo_error: str | None = None
 
 
+SPS, PPS = 7, 8  # H.264 NAL unit types: the picture-format headers
+
+
+def _nal_units(data: bytes) -> list[bytes]:
+    """Split Annex B H.264 into NAL units, each with its start code."""
+    starts = []
+    i = data.find(b"\x00\x00\x01")
+    while i != -1:
+        starts.append(i - 1 if i > 0 and data[i - 1] == 0 else i)  # 4-byte start codes
+        i = data.find(b"\x00\x00\x01", i + 3)
+    if not starts:
+        return []
+    return [data[a:b] for a, b in zip(starts, [*starts[1:], len(data)], strict=True)]
+
+
+def _nal_type(unit: bytes) -> int:
+    offset = 4 if unit.startswith(b"\x00\x00\x00\x01") else 3
+    return unit[offset] & 0x1F if len(unit) > offset else -1
+
+
+def parameter_sets(data: bytes) -> bytes:
+    """The SPS and PPS headers in a frame, or b"" when it carries none."""
+    return b"".join(u for u in _nal_units(data) if _nal_type(u) in (SPS, PPS))
+
+
 def clip_ending_at(frames: list[Frame], moment: float) -> bytes | None:
     """The frames from the last keyframe up to ``moment``, decodable on their own.
 
     Decoding these and keeping the final picture gives the scene as it was at
-    ``moment``. None when no keyframe had arrived by then.
+    ``moment``. Cameras often send the SPS/PPS headers with only some
+    keyframes; when the clip's keyframe has none, the latest ones sent before
+    it go in front so the clip still decodes. None when no keyframe had
+    arrived by then.
     """
     upto = [f for f in frames if f.at <= moment]
     starts = [i for i, f in enumerate(upto) if f.keyframe]
     if not starts:
         return None
-    return b"".join(f.data for f in upto[starts[-1] :])
+    first = starts[-1]
+    clip = b"".join(f.data for f in upto[first:])
+    if not parameter_sets(upto[first].data):
+        for earlier in reversed(upto[:first]):
+            headers = parameter_sets(earlier.data)
+            if headers:
+                clip = headers + clip
+                break
+    return clip
 
 
 # The SDK is initialised once per process and shared by every camera link.
@@ -430,6 +466,23 @@ class CameraLink:
         size = out_size.value or ret
         return Frame(time.monotonic(), bool(info.is_keyframe), buf.raw[:size])
 
+    def _discard_old_frames(self, buf: Any, info: _FrameInfo) -> None:
+        """Throw away frames still queued from the last toss's video.
+
+        Stopping video leaves frames buffered on the link, and the link stays
+        open between tosses. Read late, they'd look new and a photo could show
+        the previous treat.
+        """
+        clean = getattr(self._lib, "avClientCleanVideoBuf", None)
+        if clean is not None:
+            clean(c_int(self._channel))
+        for _ in range(1000):
+            try:
+                if self._recv_frame(buf, info) is None:
+                    return
+            except P2PError:
+                return
+
     def toss_with_photos(
         self,
         offsets: tuple[float, ...] = (1.0, 2.0),
@@ -448,12 +501,14 @@ class CameraLink:
         frames: list[Frame] = []
         photo_error: str | None = None
         video = False
+        seen_any = False  # the very first frame after starting is a small preview
+        full_size = False  # a full-size keyframe has arrived; frames are kept from it
         broken = False  # a lost frame spoils what follows until the next keyframe
         buf = create_string_buffer(FRAME_BUFFER_BYTES)
         info = _FrameInfo()
 
         def take_frame() -> bool:
-            nonlocal video, broken, photo_error
+            nonlocal video, seen_any, full_size, broken, photo_error
             try:
                 frame = self._recv_frame(buf, info)
             except P2PError as err:
@@ -462,15 +517,22 @@ class CameraLink:
             if frame is None:
                 return False
             if frame is False:
-                broken = True
+                seen_any, broken = True, True
                 return True
             if frame.keyframe:
+                if seen_any and not full_size:
+                    # The first keyframe after the preview: drop the preview so
+                    # no photo is built on a picture of a different size.
+                    full_size = True
+                    frames.clear()
                 broken = False
-            if not broken:
+            seen_any = True
+            if full_size and not broken:
                 frames.append(frame)
             return True
 
         self._drain_replies()
+        self._discard_old_frames(buf, info)
         try:
             try:
                 prep, prep_data = VIDEO_PREP[proto]
@@ -484,15 +546,13 @@ class CameraLink:
             except P2PError as err:
                 photo_error = f"video did not start: {err}"
 
-            # Wait for a full-size keyframe: the first frame is a small preview.
+            # Wait for a full-size keyframe, so the photos have something to
+            # build on. If it's slow, toss anyway and keep looking afterwards.
             deadline = time.monotonic() + settle
-            while video and time.monotonic() < deadline:
-                if take_frame():
-                    if sum(f.keyframe for f in frames) >= 2:
-                        break
-                else:
+            while video and not full_size and time.monotonic() < deadline:
+                if not take_frame():
                     time.sleep(0.005)
-            if video and not any(f.keyframe for f in frames):
+            if video and not seen_any:
                 photo_error = "no picture from the camera (is its camera switched off?)"
 
             self._drain_replies()
@@ -521,7 +581,17 @@ class CameraLink:
                 except P2PError:
                     _LOGGER.debug("Could not stop video", exc_info=True)
 
-        clips = {o: c for o in offsets if (c := clip_ending_at(frames, tossed_at + o)) is not None}
+        # The treat has gone out: from here nothing may raise, or a toss that
+        # happened would be reported as failed (and might be retried).
+        clips: dict[float, bytes] = {}
+        try:
+            for offset in offsets:
+                clip = clip_ending_at(frames, tossed_at + offset)
+                if clip is not None:
+                    clips[offset] = clip
+        except Exception as err:
+            _LOGGER.exception("Could not assemble the treat photos")
+            photo_error = f"could not assemble the photos: {err}"
         if not clips and photo_error is None:
             photo_error = "no usable picture arrived in time"
         return TossOutcome(result, tossed_at, tossed_at_epoch, clips, photo_error)

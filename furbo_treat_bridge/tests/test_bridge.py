@@ -91,12 +91,12 @@ class FakeLink:
         self.commands.append(name)
         return "acknowledged"
 
-    def toss_with_photos(self) -> TossOutcome:
+    def toss_with_photos(self, offsets=(1.0, 2.0)) -> TossOutcome:
         if self.fail_next:
             raise P2PError("camera went away")
-        self.commands.append("toss+photos")
+        self.commands.append(f"toss+photos{list(offsets)}")
         now = time.monotonic()
-        return TossOutcome("acknowledged", now, time.time(), {1.0: b"clip1", 2.0: b"clip2"})
+        return TossOutcome("acknowledged", now, time.time(), {o: f"clip{o:g}".encode() for o in offsets})
 
     def close(self) -> None:
         self.is_open = False
@@ -461,3 +461,29 @@ def test_toss_without_photos_still_reports_when(tmp_path):
     assert "photos" not in toss and toss["tossed_at"] <= time.time()
     assert FakeLink.instances[0].commands == ["toss"]
     b.close()
+
+
+def test_photo_offsets_are_passed_through(tmp_path, monkeypatch):
+    monkeypatch.setattr(bridge_mod.photos_mod, "last_picture_jpeg", lambda clip: b"JPEG:" + clip)
+    b, _ = make(tmp_path, FakeCloud(), min_interval=0)
+    run(b.sign_in())
+    toss = run(b.toss(photos=True, photo_offsets=(3.0, 1.0)))["tosses"][0]
+    assert FakeLink.instances[0].commands == ["toss+photos[1.0, 3.0]"]
+    assert [p["offset"] for p in toss["photos"]] == [1.0, 3.0]
+    assert base64.b64decode(toss["photos"][1]["jpeg"]) == b"JPEG:clip3"
+    b.close()
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(None, (1.0, 2.0)), ([2, 1, 3], (1.0, 2.0, 3.0)), ([1, 1], (1.0,)), ([0.5], (0.5,))],
+)
+def test_photo_offsets_parsing(value, expected):
+    assert bridge_mod.photo_offsets(value) == expected
+
+
+@pytest.mark.parametrize("value", [[], [0], [-1], [11], [True], ["1"], 1, [1, 2, 3, 4, 5, 6]])
+def test_photo_offsets_rejects_bad_values(value):
+    with pytest.raises(BridgeError) as err:
+        bridge_mod.photo_offsets(value)
+    assert err.value.kind == "bad_request"

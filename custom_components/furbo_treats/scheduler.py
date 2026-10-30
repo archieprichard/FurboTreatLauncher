@@ -54,6 +54,9 @@ NON_PLAN_FIELDS = (
     "triple_chance",
     "bonus_delay_seconds",
     "photos_enabled",
+    "photo_1s",
+    "photo_2s",
+    "photo_3s",
     "photo_retention_days",
 )
 # Failures worth one more try: the bridge reports that the camera or Furbo was
@@ -416,8 +419,11 @@ class ScheduleManager:
         Raises BridgeError when the toss itself fails.
         """
         scheduler = self.schedulers.get(camera_id)
-        want_photos = bool(self.photos and scheduler and scheduler.settings.photos_enabled)
-        result = await self.client.toss(camera_id, count, photos=want_photos)
+        offsets = scheduler.settings.photo_offsets() if (self.photos and scheduler) else []
+        if offsets:
+            result = await self.client.toss(camera_id, count, photos=True, photo_offsets=offsets)
+        else:
+            result = await self.client.toss(camera_id, count, photos=False)
         urls: list[str] = []
         tossed_at: dt.datetime | None = None
         for toss in result.get("tosses") or []:

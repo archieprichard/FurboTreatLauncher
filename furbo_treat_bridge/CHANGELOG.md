@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- Photos can be taken at any of up to 5 moments after a toss (the
+  integration offers 1, 2 and 3 seconds). Video runs only as long as the
+  latest one needs.
+- Photo capture fixes: never built on the camera's small preview frame,
+  never from frames left over from the previous toss, and decodable when a
+  keyframe lacks its SPS/PPS headers. A photo problem can't fail a toss.
+
 ## 0.2.0
 
 - Treat photos: with photos on, each toss returns two photos, 1 and 2 seconds

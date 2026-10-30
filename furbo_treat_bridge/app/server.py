@@ -5,9 +5,10 @@ Every route needs ``Authorization: Bearer <api_token>``.
     GET  /api/status                       sign-in state, cameras, today's count
     POST /api/login/code   {"code": "1234"} finish sign-in with the emailed code
     POST /api/login/resend {}               ask Furbo to email a new code
-    POST /api/toss         {"device_id"?: "...", "count"?: 1..5, "photos"?: bool}
+    POST /api/toss         {"device_id"?: "...", "count"?: 1..5, "photos"?: bool,
+                            "photo_offsets"?: [seconds, ...]}
                            with photos, each toss carries JPEGs (base64) from
-                           1 and 2 seconds after it
+                           those seconds after it (default 1 and 2)
     POST /api/treat-sound  {"device_id"?: "..."}
 """
 
@@ -19,11 +20,11 @@ from typing import Any
 
 from aiohttp import web
 
-from bridge import Bridge, BridgeError
+from bridge import Bridge, BridgeError, photo_offsets
 
 _LOGGER = logging.getLogger(__name__)
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 BRIDGE_KEY: web.AppKey[Bridge] = web.AppKey("bridge", Bridge)
 TOKEN_KEY: web.AppKey[str] = web.AppKey("token", str)
 
@@ -100,7 +101,8 @@ async def post_toss(request: web.Request) -> web.Response:
     photos = data.get("photos", False)
     if not isinstance(photos, bool):
         raise BridgeError("bad_request", "photos must be true or false.")
-    result = await request.app[BRIDGE_KEY].toss(_device(data), count, photos=photos)
+    offsets = photo_offsets(data.get("photo_offsets"))
+    result = await request.app[BRIDGE_KEY].toss(_device(data), count, photos=photos, photo_offsets=offsets)
     return web.json_response({"ok": True, **result})
 
 

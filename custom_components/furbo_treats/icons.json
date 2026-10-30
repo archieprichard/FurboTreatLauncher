@@ -62,6 +62,24 @@
         "state": {
           "off": "mdi:camera-off"
         }
+      },
+      "photo_1s": {
+        "default": "mdi:camera-timer",
+        "state": {
+          "off": "mdi:camera-off"
+        }
+      },
+      "photo_2s": {
+        "default": "mdi:camera-timer",
+        "state": {
+          "off": "mdi:camera-off"
+        }
+      },
+      "photo_3s": {
+        "default": "mdi:camera-timer",
+        "state": {
+          "off": "mdi:camera-off"
+        }
       }
     },
     "time": {
@@ -77,6 +95,9 @@
         "default": "mdi:camera"
       },
       "treat_photo_2s": {
+        "default": "mdi:camera"
+      },
+      "treat_photo_3s": {
         "default": "mdi:camera"
       }
     }

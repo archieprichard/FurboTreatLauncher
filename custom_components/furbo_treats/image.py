@@ -1,4 +1,4 @@
-"""The latest treat photos: 1 second and 2 seconds after the last toss."""
+"""The latest treat photos: 1, 2 and 3 seconds after the last toss."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ class TreatPhoto(FurboEntity, ImageEntity):
         store: PhotoStore,
         offset: float,
     ) -> None:
-        key = "treat_photo_1s" if offset == 1.0 else "treat_photo_2s"
+        key = f"treat_photo_{offset:g}s"
         FurboEntity.__init__(self, coordinator, camera_id, key)
         ImageEntity.__init__(self, hass)
         self._store = store

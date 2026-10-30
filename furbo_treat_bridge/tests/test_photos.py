@@ -243,3 +243,95 @@ def test_rejected_toss_raises_and_stops_video():
     with pytest.raises(P2PError, match="rejected"):
         open_link(lib).toss_with_photos(settle=0.2)
     assert IPCAM_STOP in lib.sent
+
+
+# --- regressions from the bug check ---------------------------------------------------
+
+
+def _without_headers(frames, keep: set[int]):
+    """The stream as a camera that sends SPS/PPS only on some keyframes would."""
+    from furbo_p2p import PPS, SPS, _nal_type, _nal_units
+
+    out = []
+    for i, (key, data) in enumerate(frames):
+        kept = data
+        if key and i not in keep:
+            kept = b"".join(u for u in _nal_units(data) if _nal_type(u) not in (SPS, PPS))
+        out.append((key, kept))
+    return out
+
+
+@needs_ffmpeg
+def test_photos_decode_when_keyframes_lack_headers(stream_frames):
+    # Headers only on the first full-size keyframe (frame 10).
+    frames = _without_headers(stream_frames, keep={0, 10})
+    bare = b"".join(d for _, d in frames[30:40])
+    assert photos.last_picture_jpeg(bare) is None  # proof the stream really lacks them
+    outcome = open_link(FakeVideoLib(frames)).toss_with_photos()
+    seen = [_closest(_dominant_rgb(photos.last_picture_jpeg(outcome.clips[o]))) for o in (1.0, 2.0)]
+    assert seen == ["green", "blue"]
+
+
+def test_clip_prefixes_latest_headers_before_its_keyframe():
+    sps_a, pps_a = b"\x00\x00\x00\x01\x67A", b"\x00\x00\x00\x01\x68A"
+    idr = b"\x00\x00\x00\x01\x65I"
+    frames = [
+        Frame(0.0, True, sps_a + pps_a + idr),
+        Frame(0.1, False, b"\x00\x00\x00\x01\x41p"),
+        Frame(0.2, True, idr),  # no headers of its own
+        Frame(0.3, False, b"\x00\x00\x00\x01\x41q"),
+    ]
+    assert clip_ending_at(frames, 0.35) == sps_a + pps_a + idr + b"\x00\x00\x00\x01\x41q"
+    assert clip_ending_at(frames, 0.05) == sps_a + pps_a + idr  # has its own: nothing added
+
+
+class StaleThenLive(FakeVideoLib):
+    """Frames left over from the last toss sit in the buffer before video starts."""
+
+    def __init__(self, frames, stale):
+        super().__init__(frames)
+        self.stale = list(stale)
+
+    def avRecvFrameData2(self, chan, buf, size, out_size, expected, info, *rest):
+        if self.started_at is None and self.stale:
+            key, data = self.stale.pop(0)
+            ctypes.memmove(buf, data, len(data))
+            out_size._obj.value = len(data)
+            info._obj.is_keyframe = 1 if key else 0
+            return 0
+        return super().avRecvFrameData2(chan, buf, size, out_size, expected, info, *rest)
+
+
+@needs_ffmpeg
+def test_leftover_frames_from_the_last_toss_are_not_used(stream_frames):
+    # 40 frames of white left over from the previous toss's video.
+    lib = StaleThenLive(stream_frames, stale=stream_frames[75:100] * 2)
+    outcome = open_link(lib).toss_with_photos()
+    assert lib.stale == []
+    seen = [_closest(_dominant_rgb(photos.last_picture_jpeg(outcome.clips[o]))) for o in (1.0, 2.0)]
+    assert seen == ["green", "blue"]
+
+
+def test_slow_full_size_keyframe_never_mixes_in_the_preview():
+    # A preview keyframe, then P-frames, and the full-size keyframe only 2 s in.
+    # The treat goes after the 0.6 s settle (about 0.6 s in), so at +1 s there's
+    # nothing valid to use, and the +2 s photo starts at the full-size keyframe.
+    frames = [(True, b"PREVIEW")] + [(False, b"p")] * 49 + [(True, b"FULLKEY")] + [(False, b"q")] * 60
+    outcome = open_link(FakeVideoLib(frames)).toss_with_photos(settle=0.6)
+    assert all(b"PREVIEW" not in clip for clip in outcome.clips.values())
+    assert 1.0 not in outcome.clips
+    assert outcome.clips[2.0].startswith(b"FULLKEY")
+
+
+@needs_ffmpeg
+def test_three_photos_including_plus_three_seconds(stream_frames):
+    outcome = open_link(FakeVideoLib(stream_frames)).toss_with_photos((1.0, 2.0, 3.0))
+    seen = [_closest(_dominant_rgb(photos.last_picture_jpeg(outcome.clips[o]))) for o in (1.0, 2.0, 3.0)]
+    assert seen == ["green", "blue", "white"]
+
+
+@needs_ffmpeg
+def test_only_the_three_second_photo(stream_frames):
+    outcome = open_link(FakeVideoLib(stream_frames)).toss_with_photos((3.0,))
+    assert set(outcome.clips) == {3.0}
+    assert _closest(_dominant_rgb(photos.last_picture_jpeg(outcome.clips[3.0]))) == "white"

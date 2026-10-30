@@ -85,10 +85,18 @@ class BridgeClient:
     async def resend_code(self) -> dict[str, Any]:
         return await self._request("POST", "/login/resend", {})
 
-    async def toss(self, device_id: str, count: int = 1, *, photos: bool = False) -> dict[str, Any]:
-        return await self._request(
-            "POST", "/toss", {"device_id": device_id, "count": count, "photos": photos}
-        )
+    async def toss(
+        self,
+        device_id: str,
+        count: int = 1,
+        *,
+        photos: bool = False,
+        photo_offsets: list[float] | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"device_id": device_id, "count": count, "photos": photos}
+        if photos and photo_offsets:
+            body["photo_offsets"] = photo_offsets
+        return await self._request("POST", "/toss", body)
 
     async def treat_sound(self, device_id: str) -> dict[str, Any]:
         return await self._request("POST", "/treat-sound", {"device_id": device_id})

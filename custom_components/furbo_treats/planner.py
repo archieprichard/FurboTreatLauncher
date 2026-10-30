@@ -48,9 +48,20 @@ class ScheduleSettings:
     triple_chance: int = 25  # percent
     # Seconds from a treat to its double launch, and from a double to its triple.
     bonus_delay_seconds: int = 30
-    # Photos 1 and 2 seconds after every toss, kept this many days.
+    # Photos after every toss: a main switch, then which moments to take, kept
+    # this many days.
     photos_enabled: bool = True
+    photo_1s: bool = True
+    photo_2s: bool = True
+    photo_3s: bool = False
     photo_retention_days: int = 14
+
+    def photo_offsets(self) -> list[float]:
+        """Seconds after a toss to take photos at; empty when photos are off."""
+        if not self.photos_enabled:
+            return []
+        wanted = ((1.0, self.photo_1s), (2.0, self.photo_2s), (3.0, self.photo_3s))
+        return [offset for offset, on in wanted if on]
 
     @property
     def min_gap(self) -> dt.timedelta:
