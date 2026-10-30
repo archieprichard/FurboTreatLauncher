@@ -16,9 +16,10 @@ ARG TUTK_SHA256_ARM64="cc3542f50c0c3f433f7083de4666ed126bbe64e02a91753462c25af20
 
 # tzdata: Home Assistant passes its time zone as TZ, and without zone files the
 # daily treat count would roll over at UTC midnight instead of local midnight.
+# ffmpeg: turns the camera's H.264 video into the treat photos.
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends curl ca-certificates tzdata; \
+    apt-get install -y --no-install-recommends curl ca-certificates tzdata ffmpeg; \
     case "$(uname -m)" in \
       x86_64) arch=amd64; sha="$TUTK_SHA256_AMD64" ;; \
       aarch64) arch=arm64; sha="$TUTK_SHA256_ARM64" ;; \

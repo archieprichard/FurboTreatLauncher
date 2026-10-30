@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from pathlib import Path
+import time
 from typing import Any
 
 import pytest
@@ -18,7 +20,7 @@ from furbo_cloud import (
     FurboLoginError,
     LoginResult,
 )
-from furbo_p2p import P2PCredentials, P2PError
+from furbo_p2p import P2PCredentials, P2PError, TossOutcome
 
 DEVICE = {
     "Id": "dev1",
@@ -88,6 +90,13 @@ class FakeLink:
             raise P2PError("camera went away")
         self.commands.append(name)
         return "acknowledged"
+
+    def toss_with_photos(self) -> TossOutcome:
+        if self.fail_next:
+            raise P2PError("camera went away")
+        self.commands.append("toss+photos")
+        now = time.monotonic()
+        return TossOutcome("acknowledged", now, time.time(), {1.0: b"clip1", 2.0: b"clip2"})
 
     def close(self) -> None:
         self.is_open = False
@@ -416,3 +425,39 @@ def test_successful_sign_in_clears_a_stale_pending_code(tmp_path):
     run(b.sign_in(force_new_code=True))
     assert b.login_state == READY
     assert b.store.get("pending_candidate") is None
+
+
+# --- treat photos -----------------------------------------------------------------
+
+
+def test_toss_with_photos_returns_jpegs(tmp_path, monkeypatch):
+    monkeypatch.setattr(bridge_mod.photos_mod, "last_picture_jpeg", lambda clip: b"JPEG:" + clip)
+    b, _ = make(tmp_path, FakeCloud(), min_interval=0)
+    run(b.sign_in())
+    result = run(b.toss(photos=True))
+    toss = result["tosses"][0]
+    assert result["results"] == ["acknowledged"]
+    assert [p["offset"] for p in toss["photos"]] == [1.0, 2.0]
+    assert base64.b64decode(toss["photos"][1]["jpeg"]) == b"JPEG:clip2"
+    assert toss["photo_error"] is None
+    assert toss["tossed_at"] <= time.time()
+    assert b.treats_today() == 1
+    b.close()
+
+
+def test_failed_decode_drops_that_photo_but_keeps_the_treat(tmp_path, monkeypatch):
+    monkeypatch.setattr(bridge_mod.photos_mod, "last_picture_jpeg", lambda clip: None)
+    b, _ = make(tmp_path, FakeCloud(), min_interval=0)
+    run(b.sign_in())
+    result = run(b.toss(photos=True))
+    assert result["results"] == ["acknowledged"] and result["tosses"][0]["photos"] == []
+    b.close()
+
+
+def test_toss_without_photos_still_reports_when(tmp_path):
+    b, _ = make(tmp_path, FakeCloud(), min_interval=0)
+    run(b.sign_in())
+    toss = run(b.toss())["tosses"][0]
+    assert "photos" not in toss and toss["tossed_at"] <= time.time()
+    assert FakeLink.instances[0].commands == ["toss"]
+    b.close()

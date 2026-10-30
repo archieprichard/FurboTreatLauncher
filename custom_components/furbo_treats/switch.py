@@ -19,6 +19,7 @@ SWITCHES = {
     "schedule_enabled": "enabled",
     "double_launch": "double_enabled",
     "triple_launch": "triple_enabled",
+    "treat_photos": "photos_enabled",
 }
 
 

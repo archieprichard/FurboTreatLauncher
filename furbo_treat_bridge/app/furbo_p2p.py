@@ -38,6 +38,7 @@ from ctypes import (
 from dataclasses import dataclass
 import logging
 import random
+import struct
 import threading
 import time
 from typing import Any
@@ -57,6 +58,18 @@ COMMANDS = {
 NOTIFY_TREAT_TOSSING_V3 = 196613
 # A camera refusing a command answers this with [status, opcode_lo, opcode_hi, ...].
 CMD_REJECTED = 0x40001
+
+# Video, for treat photos. The app asks for device info, then starts video with
+# a little-endian quality number; the camera sends one 640x360 preview frame
+# and then 1080p H.264 (Annex B), verified by ha-furbo on an FB0030.
+IPCAM_START = 0x1FF
+IPCAM_STOP = 0x2FF
+VIDEO_PREP = {"v3": (65537, b"\0\0\0\0"), "v2": (2345, b"\1\0\0\0")}  # GET_DEVICE_INFO
+QUALITY_1080P = {"v3": 0, "v2": 1}
+AV_ER_DATA_NOREADY = -20012
+AV_ER_INCOMPLETE_FRAME = -20013
+AV_ER_LOSED_THIS_FRAME = -20014
+FRAME_BUFFER_BYTES = 2 * 1024 * 1024
 
 # Which command set each Furbo model uses (from the app's FurboType mapping).
 PROTO_BY_PRODUCT = {
@@ -184,6 +197,57 @@ class _AVClientStartOut(Structure):
     ]
 
 
+class _FrameInfo(Structure):
+    _fields_ = [
+        ("codec_id", c_uint16),
+        ("is_keyframe", c_uint8),
+        ("cam_index", c_uint8),
+        ("online_num", c_uint8),
+        ("framerate", c_uint8),
+        ("frame_size", c_uint8),
+        ("bitrate", c_uint8),
+        ("timestamp_ms", c_uint32),
+        ("timestamp", c_uint32),
+        ("frame_len", c_uint32),
+        ("frame_no", c_uint32),
+        ("ac_mac_addr", c_char * 12),
+        ("n_play_token", c_int32),
+    ]
+
+
+@dataclass
+class Frame:
+    """One received H.264 frame and when it arrived (time.monotonic)."""
+
+    at: float
+    keyframe: bool
+    data: bytes
+
+
+@dataclass
+class TossOutcome:
+    """What happened when a treat was tossed with photos."""
+
+    result: str  # "acknowledged" or "sent"
+    tossed_at: float  # time.monotonic() when the command went out
+    tossed_at_epoch: float  # the same moment as a Unix timestamp
+    clips: dict[float, bytes]  # seconds after the toss -> H.264 ending at that moment
+    photo_error: str | None = None
+
+
+def clip_ending_at(frames: list[Frame], moment: float) -> bytes | None:
+    """The frames from the last keyframe up to ``moment``, decodable on their own.
+
+    Decoding these and keeping the final picture gives the scene as it was at
+    ``moment``. None when no keyframe had arrived by then.
+    """
+    upto = [f for f in frames if f.at <= moment]
+    starts = [i for i, f in enumerate(upto) if f.keyframe]
+    if not starts:
+        return None
+    return b"".join(f.data for f in upto[starts[-1] :])
+
+
 # The SDK is initialised once per process and shared by every camera link.
 _SDK_LOCK = threading.Lock()
 _sdk_lib: Any = None
@@ -272,6 +336,14 @@ class CameraLink:
             self.close()
             raise P2PError(f"{creds.name} refused the command channel: {describe(ret)}")
         self._channel = ret
+        # Room for whole 1080p keyframes, as the Furbo app sets it; with the
+        # small default buffers they can arrive incomplete and spoil a photo.
+        set_max = getattr(lib, "avClientSetMaxBufSize", None)
+        set_recv = getattr(lib, "avClientSetRecvBufMaxSize", None)
+        if set_max is not None:
+            set_max(c_uint(10 * 1024 * 1024))
+        if set_recv is not None:
+            set_recv(c_int(self._channel), c_uint(10 * 1024 * 1024))
         _LOGGER.info("Link to %s open", creds.name)
 
     def _poll(self, timeout_ms: int) -> tuple[int, bytes] | None:
@@ -284,6 +356,29 @@ class CameraLink:
             return None
         return opcode.value, buf.raw[:ret]
 
+    def _send_ioctl(self, opcode: int, data: bytes, what: str) -> None:
+        ret = self._lib.avSendIOCtrl(c_int(self._channel), c_uint(opcode), data, c_int(len(data)))
+        if ret < 0:
+            raise P2PError(f"Sending {what} to {self.creds.name} failed: {describe(ret)}")
+
+    def _drain_replies(self) -> None:
+        """Drop queued replies, so a stale one is not taken for ours."""
+        while self._poll(0) is not None:
+            pass
+
+    def _verdict(self, name: str, opcode: int, reply: tuple[int, bytes]) -> str | None:
+        """What a camera message says about our command; None if it isn't about it."""
+        code, data = reply
+        if code == opcode + 1:
+            if data and data[0] != 0:
+                raise P2PError(f"{self.creds.name} reported error {data[0]} for {name}")
+            return "acknowledged"
+        if code == NOTIFY_TREAT_TOSSING_V3 and name == "toss":
+            return "acknowledged"
+        if code == CMD_REJECTED and len(data) >= 3 and (data[1] | data[2] << 8) == opcode & 0xFFFF:
+            raise P2PError(f"{self.creds.name} rejected {name} (status {data[0]})")
+        return None
+
     def command(self, name: str, wait: float = 3.0) -> str:
         """Send a treat command and report what the camera said.
 
@@ -292,13 +387,8 @@ class CameraLink:
         send fails or the camera rejects it.
         """
         opcode = COMMANDS[self.creds.proto][name]
-        # Drop anything already queued, so a stale reply is not taken for ours.
-        while self._poll(0) is not None:
-            pass
-        ret = self._lib.avSendIOCtrl(c_int(self._channel), c_uint(opcode), b"\0\0\0\0", c_int(4))
-        if ret < 0:
-            raise P2PError(f"Sending {name} to {self.creds.name} failed: {describe(ret)}")
-
+        self._drain_replies()
+        self._send_ioctl(opcode, b"\0\0\0\0", name)
         deadline = time.monotonic() + wait
         while time.monotonic() < deadline:
             reply = self._poll(200)
@@ -306,16 +396,135 @@ class CameraLink:
                 # A dead channel returns at once instead of waiting; don't spin.
                 time.sleep(0.05)
                 continue
-            code, data = reply
-            if code == opcode + 1:
-                if data and data[0] != 0:
-                    raise P2PError(f"{self.creds.name} reported error {data[0]} for {name}")
-                return "acknowledged"
-            if code == NOTIFY_TREAT_TOSSING_V3 and name == "toss":
-                return "acknowledged"
-            if code == CMD_REJECTED and len(data) >= 3 and (data[1] | data[2] << 8) == opcode & 0xFFFF:
-                raise P2PError(f"{self.creds.name} rejected {name} (status {data[0]})")
+            verdict = self._verdict(name, opcode, reply)
+            if verdict:
+                return verdict
         return "sent"
+
+    # --- treat photos ----------------------------------------------------------
+
+    def _recv_frame(self, buf: Any, info: _FrameInfo) -> Frame | bool | None:
+        """One video frame; None when none is ready; False when one was lost.
+
+        Raises P2PError when the video channel has failed outright.
+        """
+        out_size, expected, info_size, frame_no = c_int32(), c_int32(), c_int32(), c_uint32()
+        ret = self._lib.avRecvFrameData2(
+            c_int(self._channel),
+            buf,
+            c_int(FRAME_BUFFER_BYTES),
+            byref(out_size),
+            byref(expected),
+            byref(info),
+            c_int(sizeof(info)),
+            byref(info_size),
+            byref(frame_no),
+        )
+        if ret == AV_ER_DATA_NOREADY:
+            return None
+        if ret in (AV_ER_LOSED_THIS_FRAME, AV_ER_INCOMPLETE_FRAME):
+            return False
+        if ret < 0:
+            raise P2PError(f"video from {self.creds.name} failed: {describe(ret)}")
+        # Some SDK builds return the size, others 0 with the size in out_size.
+        size = out_size.value or ret
+        return Frame(time.monotonic(), bool(info.is_keyframe), buf.raw[:size])
+
+    def toss_with_photos(
+        self,
+        offsets: tuple[float, ...] = (1.0, 2.0),
+        *,
+        settle: float = 6.0,
+        wait: float = 3.0,
+    ) -> TossOutcome:
+        """Toss a treat while video runs, keeping the picture at each offset.
+
+        Video starts first, so frames are already flowing when the treat goes.
+        A photo problem never stops the toss: it is reported in photo_error and
+        the treat is tossed anyway. Raises P2PError only for the toss itself.
+        """
+        proto = self.creds.proto
+        opcode = COMMANDS[proto]["toss"]
+        frames: list[Frame] = []
+        photo_error: str | None = None
+        video = False
+        broken = False  # a lost frame spoils what follows until the next keyframe
+        buf = create_string_buffer(FRAME_BUFFER_BYTES)
+        info = _FrameInfo()
+
+        def take_frame() -> bool:
+            nonlocal video, broken, photo_error
+            try:
+                frame = self._recv_frame(buf, info)
+            except P2PError as err:
+                video, photo_error = False, str(err)
+                return False
+            if frame is None:
+                return False
+            if frame is False:
+                broken = True
+                return True
+            if frame.keyframe:
+                broken = False
+            if not broken:
+                frames.append(frame)
+            return True
+
+        self._drain_replies()
+        try:
+            try:
+                prep, prep_data = VIDEO_PREP[proto]
+                self._send_ioctl(prep, prep_data, "device info")
+                end = time.monotonic() + 0.3
+                while time.monotonic() < end:
+                    if self._poll(50) is None:
+                        time.sleep(0.01)
+                self._send_ioctl(IPCAM_START, struct.pack("<i", QUALITY_1080P[proto]), "video start")
+                video = True
+            except P2PError as err:
+                photo_error = f"video did not start: {err}"
+
+            # Wait for a full-size keyframe: the first frame is a small preview.
+            deadline = time.monotonic() + settle
+            while video and time.monotonic() < deadline:
+                if take_frame():
+                    if sum(f.keyframe for f in frames) >= 2:
+                        break
+                else:
+                    time.sleep(0.005)
+            if video and not any(f.keyframe for f in frames):
+                photo_error = "no picture from the camera (is its camera switched off?)"
+
+            self._drain_replies()
+            self._send_ioctl(opcode, b"\0\0\0\0", "toss")
+            tossed_at, tossed_at_epoch = time.monotonic(), time.time()
+            last_frame_due = tossed_at + max(offsets) + 0.2
+            result: str | None = None
+            while True:
+                now = time.monotonic()
+                if result is None and now >= tossed_at + wait:
+                    result = "sent"
+                if result is not None and (not video or now >= last_frame_due):
+                    break
+                busy = take_frame() if video else False
+                reply = self._poll(0)
+                if reply is not None:
+                    busy = True
+                    verdict = self._verdict("toss", opcode, reply)
+                    result = result or verdict
+                if not busy:
+                    time.sleep(0.005)
+        finally:
+            if video:
+                try:
+                    self._send_ioctl(IPCAM_STOP, struct.pack("<i", 0), "video stop")
+                except P2PError:
+                    _LOGGER.debug("Could not stop video", exc_info=True)
+
+        clips = {o: c for o in offsets if (c := clip_ending_at(frames, tossed_at + o)) is not None}
+        if not clips and photo_error is None:
+            photo_error = "no usable picture arrived in time"
+        return TossOutcome(result, tossed_at, tossed_at_epoch, clips, photo_error)
 
     def close(self) -> None:
         """Close this link. The shared SDK stays up for other cameras."""

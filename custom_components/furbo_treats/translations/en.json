@@ -43,15 +43,32 @@
   },
   "entity": {
     "button": {
-      "toss_treat": { "name": "Toss treat" },
-      "treat_sound": { "name": "Play treat sound" }
+      "toss_treat": {
+        "name": "Toss treat"
+      },
+      "treat_sound": {
+        "name": "Play treat sound"
+      }
     },
     "number": {
-      "treats_per_day": { "name": "Treats per day" },
-      "min_gap": { "name": "Minimum time between treats" },
-      "double_chance": { "name": "Double launch chance" },
-      "triple_chance": { "name": "Triple launch chance" },
-      "bonus_delay": { "name": "Bonus launch delay" }
+      "treats_per_day": {
+        "name": "Treats per day"
+      },
+      "min_gap": {
+        "name": "Minimum time between treats"
+      },
+      "double_chance": {
+        "name": "Double launch chance"
+      },
+      "triple_chance": {
+        "name": "Triple launch chance"
+      },
+      "bonus_delay": {
+        "name": "Bonus launch delay"
+      },
+      "photo_retention": {
+        "name": "Keep treat photos for"
+      }
     },
     "select": {
       "schedule_mode": {
@@ -63,17 +80,42 @@
       }
     },
     "sensor": {
-      "treats_today": { "name": "Treats today" },
-      "next_treat": { "name": "Next scheduled treat" }
+      "treats_today": {
+        "name": "Treats today"
+      },
+      "next_treat": {
+        "name": "Next scheduled treat"
+      }
     },
     "switch": {
-      "schedule_enabled": { "name": "Treat schedule" },
-      "double_launch": { "name": "Double launch" },
-      "triple_launch": { "name": "Triple launch" }
+      "schedule_enabled": {
+        "name": "Treat schedule"
+      },
+      "double_launch": {
+        "name": "Double launch"
+      },
+      "triple_launch": {
+        "name": "Triple launch"
+      },
+      "treat_photos": {
+        "name": "Treat photos"
+      }
     },
     "time": {
-      "window_start": { "name": "Schedule window start" },
-      "window_end": { "name": "Schedule window end" }
+      "window_start": {
+        "name": "Schedule window start"
+      },
+      "window_end": {
+        "name": "Schedule window end"
+      }
+    },
+    "image": {
+      "treat_photo_1s": {
+        "name": "Treat photo +1 s"
+      },
+      "treat_photo_2s": {
+        "name": "Treat photo +2 s"
+      }
     }
   },
   "services": {

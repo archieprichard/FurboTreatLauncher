@@ -3,7 +3,7 @@
 # Holds the Furbo sign-in and the peer-to-peer link to the camera, and exposes
 # a small token-protected HTTP API the Furbo Treat Launcher integration uses.
 name: Furbo Treat Bridge
-version: "0.1.0"
+version: "0.2.0"
 slug: furbo_treat_bridge
 description: >-
   Signs in to Furbo and sends treat commands to your Furbo camera for the

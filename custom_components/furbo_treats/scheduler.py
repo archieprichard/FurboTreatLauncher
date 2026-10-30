@@ -4,11 +4,14 @@ Settings and today's progress are saved, so a restart keeps the same plan (a
 random day is not re-rolled) and never repeats a treat already given. Treats
 whose time passed while Home Assistant was down are skipped.
 
-A double launch is a bonus second treat 30 seconds after a scheduled one, given
+A double launch is a bonus second treat a set delay after a scheduled one, given
 at random with the configured chance. When a double launch goes out, a triple
-launch can follow 30 seconds after it, with its own chance. Bonus treats do not
-use up the day's treats per day, but the bridge still counts them toward its
-daily safety limit.
+launch can follow the same delay after it, with its own chance. Bonus treats do
+not use up the day's treats per day, but the bridge still counts them toward
+its daily safety limit.
+
+Every toss, from the schedule, a button or an action, goes through
+:meth:`ScheduleManager.async_toss`, which also saves the treat photos.
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ from homeassistant.util import dt as dt_util
 
 from .api import BridgeClient, BridgeError
 from .const import DOMAIN, EVENT_SCHEDULED_TREAT
+from .photo_store import PhotoStore
 from .planner import MODES, ScheduleSettings, plan_remaining
 
 if TYPE_CHECKING:
@@ -41,13 +45,16 @@ _LOGGER = logging.getLogger(__name__)
 STORAGE_VERSION = 1
 RETRY_DELAY = dt.timedelta(minutes=2)
 BONUS_NAMES = {2: "double", 3: "triple"}
-# Settings that only affect bonus launches, not when the day's treats happen.
-BONUS_FIELDS = (
+# Settings that don't affect when the day's treats happen, so changing them
+# never re-plans the day.
+NON_PLAN_FIELDS = (
     "double_enabled",
     "double_chance",
     "triple_enabled",
     "triple_chance",
     "bonus_delay_seconds",
+    "photos_enabled",
+    "photo_retention_days",
 )
 # Failures worth one more try: the bridge reports that the camera or Furbo was
 # unreachable, so nothing went out. Not "connection": when the bridge's answer
@@ -130,7 +137,7 @@ class TreatScheduler:
     def _plan_key(self) -> str:
         """The settings that decide the plan; the bonus launch ones do not."""
         data = _settings_to_dict(self.settings)
-        for name in BONUS_FIELDS:
+        for name in NON_PLAN_FIELDS:
             data.pop(name)
         return repr(sorted(data.items()))
 
@@ -262,7 +269,7 @@ class TreatScheduler:
         }
         self._in_flight_since = now
         try:
-            await self._manager.client.toss(self.camera_id)
+            tossed = await self._manager.async_toss(self.camera_id)
         except Exception as caught:
             err = caught if isinstance(caught, BridgeError) else BridgeError(str(caught), "unexpected")
             if not isinstance(caught, BridgeError):
@@ -283,6 +290,7 @@ class TreatScheduler:
             self.given += 1
             self.last_given = now
             result["success"] = True
+            result["photos"] = tossed["photo_urls"]
             self.last_result = f"Tossed at {now:%H:%M}"
             _LOGGER.info(
                 "%s: scheduled treat %d of %d tossed",
@@ -290,28 +298,34 @@ class TreatScheduler:
                 self.given,
                 self.settings.per_day,
             )
-            self._maybe_bonus(2, now, result)
+            self._maybe_bonus(2, tossed["tossed_at"] or now, result)
         self.hass.bus.async_fire(EVENT_SCHEDULED_TREAT, result)
         self._arm()
         self._changed()
         await self._manager.coordinator.async_request_refresh()
 
-    def _maybe_bonus(self, shot: int, now: dt.datetime, result: dict[str, Any]) -> None:
-        """Roll for bonus shot ``shot`` (2 = double, 3 = triple) and arm it on a hit."""
+    def _maybe_bonus(self, shot: int, tossed_at: dt.datetime, result: dict[str, Any]) -> None:
+        """Roll for bonus shot ``shot`` (2 = double, 3 = triple) and arm it on a hit.
+
+        The delay counts from ``tossed_at``, the moment the previous treat left,
+        not from when its photos were ready.
+        """
         name = BONUS_NAMES[shot]
         enabled = getattr(self.settings, f"{name}_enabled")
         chance = getattr(self.settings, f"{name}_chance")
         if not enabled or self._rng.random() * 100 >= chance:
             return
         delay = max(1, self.settings.bonus_delay_seconds)
-        result[f"{name}_launch_at"] = (now + dt.timedelta(seconds=delay)).isoformat()
+        elapsed = (dt_util.now() - tossed_at).total_seconds()
+        wait = max(1.0, delay - max(0.0, elapsed))
+        result[f"{name}_launch_at"] = (tossed_at + dt.timedelta(seconds=delay)).isoformat()
 
         async def fire(_when: dt.datetime) -> None:
             if unsub in self._bonus_timers:
                 self._bonus_timers.remove(unsub)
             await self._fire_bonus(shot)
 
-        unsub = async_call_later(self.hass, delay, fire)
+        unsub = async_call_later(self.hass, wait, fire)
         self._bonus_timers.append(unsub)
 
     async def _fire_bonus(self, shot: int) -> None:
@@ -324,7 +338,7 @@ class TreatScheduler:
             "triple_launch": shot == 3,
         }
         try:
-            await self._manager.client.toss(self.camera_id)
+            tossed = await self._manager.async_toss(self.camera_id)
         except Exception as err:  # noqa: BLE001 - reported as a failed bonus, never raised
             result.update(success=False, error=str(err), kind=getattr(err, "kind", "unexpected"))
             _LOGGER.warning("%s %s launch failed: %s", self.camera_name, name, err)
@@ -334,10 +348,11 @@ class TreatScheduler:
             else:
                 self.triples += 1
             result["success"] = True
+            result["photos"] = tossed["photo_urls"]
             self.last_result = f"{name.capitalize()} launch at {now:%H:%M}"
             _LOGGER.info("%s: %s launch!", self.camera_name, name)
             if shot == 2:
-                self._maybe_bonus(3, now, result)
+                self._maybe_bonus(3, tossed["tossed_at"] or now, result)
         self.hass.bus.async_fire(EVENT_SCHEDULED_TREAT, result)
         self._changed()
         await self._manager.coordinator.async_request_refresh()
@@ -352,10 +367,12 @@ class ScheduleManager:
         entry_id: str,
         client: BridgeClient,
         coordinator: FurboStatusCoordinator,
+        photos: PhotoStore | None = None,
     ) -> None:
         self.hass = hass
         self.client = client
         self.coordinator = coordinator
+        self.photos = photos
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry_id}")
         self.schedulers: dict[str, TreatScheduler] = {}
         self._unsub_midnight: CALLBACK_TYPE | None = None
@@ -370,11 +387,57 @@ class ScheduleManager:
         for scheduler in self.schedulers.values():
             scheduler.async_start()
         self._unsub_midnight = async_track_time_change(self.hass, self._midnight, hour=0, minute=0, second=5)
+        self._clean_old_photos(dt_util.now().date())
 
     @callback
     def _midnight(self, now: dt.datetime) -> None:
+        local = dt_util.as_local(now)
         for scheduler in self.schedulers.values():
-            scheduler.new_day(dt_util.as_local(now))
+            scheduler.new_day(local)
+        self._clean_old_photos(local.date())
+
+    @callback
+    def _clean_old_photos(self, today: dt.date) -> None:
+        if self.photos is None:
+            return
+        for s in self.schedulers.values():
+            self.hass.async_add_executor_job(
+                self.photos.cleanup, s.camera_name, s.settings.photo_retention_days, today
+            )
+
+    async def async_toss(self, camera_id: str, count: int = 1) -> dict[str, Any]:
+        """Toss treats, with photos when the camera's photo switch is on, and save them.
+
+        Every toss goes through here: scheduled, double, triple, buttons and the
+        action. The result gains ``photo_urls`` (for notifications) and
+        ``tossed_at`` (when the last treat left, local time; None if unknown).
+        Raises BridgeError when the toss itself fails.
+        """
+        scheduler = self.schedulers.get(camera_id)
+        want_photos = bool(self.photos and scheduler and scheduler.settings.photos_enabled)
+        result = await self.client.toss(camera_id, count, photos=want_photos)
+        urls: list[str] = []
+        tossed_at: dt.datetime | None = None
+        for toss in result.get("tosses") or []:
+            stamp = toss.get("tossed_at")
+            if isinstance(stamp, (int, float)):
+                tossed_at = dt_util.as_local(dt_util.utc_from_timestamp(stamp))
+            pictures = toss.pop("photos", None)  # base64 JPEGs: too big to pass on
+            if pictures and self.photos is not None:
+                when = tossed_at or dt_util.now()
+                name = scheduler.camera_name if scheduler else camera_id
+                saved = await self.hass.async_add_executor_job(
+                    self.photos.save, camera_id, name, when, pictures
+                )
+                toss["photo_files"] = [p.as_dict() for p in saved]
+                urls.extend(p.url for p in saved)
+                if saved:
+                    self.photos.notify(camera_id)
+            if toss.get("photo_error"):
+                _LOGGER.warning("Treat photo not taken: %s", toss["photo_error"])
+        result["photo_urls"] = urls
+        result["tossed_at"] = tossed_at
+        return result
 
     @callback
     def async_save(self) -> None:

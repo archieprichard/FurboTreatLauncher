@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import CONF_DEVICE_ID, CONF_HOST, CONF_PORT, Platform
@@ -26,10 +27,12 @@ import voluptuous as vol
 from .api import BridgeClient, BridgeError
 from .const import ATTR_COUNT, CONF_API_TOKEN, DOMAIN, SERVICE_TOSS_TREAT
 from .coordinator import FurboStatusCoordinator
+from .photo_store import PhotoStore
 from .scheduler import ScheduleManager
 
 PLATFORMS = [
     Platform.BUTTON,
+    Platform.IMAGE,
     Platform.NUMBER,
     Platform.SELECT,
     Platform.SENSOR,
@@ -78,11 +81,15 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         if camera_id is None or entry is None:
             raise ServiceValidationError("Pick a Furbo camera set up by Furbo Treat Launcher.")
         try:
-            result = await entry.runtime_data.client.toss(camera_id, call.data[ATTR_COUNT])
+            result = await entry.runtime_data.schedules.async_toss(camera_id, call.data[ATTR_COUNT])
         except BridgeError as err:
             raise HomeAssistantError(f"Could not toss a treat: {err}") from err
         await entry.runtime_data.coordinator.async_request_refresh()
-        return {"results": result.get("results", []), "treats_today": result.get("treats_today")}
+        return {
+            "results": result.get("results", []),
+            "treats_today": result.get("treats_today"),
+            "photos": result.get("photo_urls", []),
+        }
 
     hass.services.async_register(
         DOMAIN,
@@ -92,6 +99,14 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         supports_response=SupportsResponse.OPTIONAL,
     )
     return True
+
+
+def _photo_store(hass: HomeAssistant) -> PhotoStore:
+    """Photos go in Home Assistant's local media folder (/media on Home Assistant OS)."""
+    media_dirs = hass.config.media_dirs
+    name = "local" if "local" in media_dirs else next(iter(media_dirs), "local")
+    root = media_dirs.get(name) or hass.config.path("media")
+    return PhotoStore(Path(root), name)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: FurboConfigEntry) -> bool:
@@ -109,7 +124,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FurboConfigEntry) -> boo
         # The bridge is still signing in after a restart; try again shortly.
         raise ConfigEntryNotReady("The Furbo Treat Bridge has not listed any cameras yet")
 
-    schedules = ScheduleManager(hass, entry.entry_id, client, coordinator)
+    schedules = ScheduleManager(hass, entry.entry_id, client, coordinator, _photo_store(hass))
     await schedules.async_load(cameras)
     entry.runtime_data = FurboData(client, coordinator, schedules)
     entry.async_on_unload(schedules.async_unload)

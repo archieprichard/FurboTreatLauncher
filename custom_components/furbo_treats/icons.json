@@ -1,37 +1,89 @@
 {
   "entity": {
     "button": {
-      "toss_treat": { "default": "mdi:bone" },
-      "treat_sound": { "default": "mdi:bell-ring" }
+      "toss_treat": {
+        "default": "mdi:bone"
+      },
+      "treat_sound": {
+        "default": "mdi:bell-ring"
+      }
     },
     "number": {
-      "treats_per_day": { "default": "mdi:counter" },
-      "min_gap": { "default": "mdi:timer-sand" },
-      "double_chance": { "default": "mdi:dice-multiple" },
-      "triple_chance": { "default": "mdi:dice-multiple" },
-      "bonus_delay": { "default": "mdi:timer-outline" }
+      "treats_per_day": {
+        "default": "mdi:counter"
+      },
+      "min_gap": {
+        "default": "mdi:timer-sand"
+      },
+      "double_chance": {
+        "default": "mdi:dice-multiple"
+      },
+      "triple_chance": {
+        "default": "mdi:dice-multiple"
+      },
+      "bonus_delay": {
+        "default": "mdi:timer-outline"
+      },
+      "photo_retention": {
+        "default": "mdi:image-multiple"
+      }
     },
     "select": {
       "schedule_mode": {
         "default": "mdi:calendar-clock",
-        "state": { "random": "mdi:shuffle-variant" }
+        "state": {
+          "random": "mdi:shuffle-variant"
+        }
       }
     },
     "sensor": {
-      "treats_today": { "default": "mdi:bone" },
-      "next_treat": { "default": "mdi:clock-outline" }
+      "treats_today": {
+        "default": "mdi:bone"
+      },
+      "next_treat": {
+        "default": "mdi:clock-outline"
+      }
     },
     "switch": {
-      "schedule_enabled": { "default": "mdi:calendar-check", "state": { "off": "mdi:calendar-remove" } },
-      "double_launch": { "default": "mdi:numeric-2-circle" },
-      "triple_launch": { "default": "mdi:numeric-3-circle" }
+      "schedule_enabled": {
+        "default": "mdi:calendar-check",
+        "state": {
+          "off": "mdi:calendar-remove"
+        }
+      },
+      "double_launch": {
+        "default": "mdi:numeric-2-circle"
+      },
+      "triple_launch": {
+        "default": "mdi:numeric-3-circle"
+      },
+      "treat_photos": {
+        "default": "mdi:camera",
+        "state": {
+          "off": "mdi:camera-off"
+        }
+      }
     },
     "time": {
-      "window_start": { "default": "mdi:clock-start" },
-      "window_end": { "default": "mdi:clock-end" }
+      "window_start": {
+        "default": "mdi:clock-start"
+      },
+      "window_end": {
+        "default": "mdi:clock-end"
+      }
+    },
+    "image": {
+      "treat_photo_1s": {
+        "default": "mdi:camera"
+      },
+      "treat_photo_2s": {
+        "default": "mdi:camera"
+      }
     }
   },
   "services": {
-    "toss_treat": { "service": "mdi:bone" }
+    "toss_treat": {
+      "service": "mdi:bone"
+    }
   }
 }

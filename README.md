@@ -77,6 +77,39 @@ On the camera's device page:
 | **Triple launch** / **Triple launch chance** | After a double launch, a chance of a third one |
 | **Bonus launch delay** | Seconds from a treat to its double, and from a double to its triple (default 30) |
 | **Next scheduled treat** | When the next one goes; attributes list today's plan and any problem |
+| **Treat photos** | Takes two photos with every toss, 1 and 2 seconds after it (on by default) |
+| **Treat photo +1 s** / **+2 s** | The photos from the most recent toss |
+| **Keep treat photos for** | Days of photos to keep (default 14); older days are deleted at midnight |
+
+### Treat photos
+
+Every toss (scheduled, double, triple, button or action) takes two photos, 1
+and 2 seconds after the treat leaves. They're saved under **Media → My media →
+furbo_treats**, in a folder per camera and per day, named like
+`18-40-12_+1s.jpg`. At about 50 photos a night, expect roughly 10–20 MB a day.
+
+To take them, the bridge starts the camera's video just before the toss and
+stops it right after, so a toss with photos takes a few seconds longer. If a
+photo can't be taken (for example, the camera is switched off in the Furbo
+app), the treat is still tossed and the add-on log says why.
+
+The treat event includes the photo URLs, so a notification can show one:
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: furbo_treats_scheduled_treat
+    event_data:
+      success: true
+conditions:
+  - "{{ trigger.event.data.photos | count > 0 }}"
+actions:
+  - action: notify.mobile_app_your_phone
+    data:
+      message: "Treat time!"
+      data:
+        image: "{{ trigger.event.data.photos[-1] }}"
+```
 
 ### How the schedule behaves
 

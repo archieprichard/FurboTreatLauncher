@@ -73,6 +73,15 @@ NUMBERS = (
         native_unit_of_measurement=UnitOfTime.SECONDS,
         mode=NumberMode.BOX,
     ),
+    ScheduleNumberDescription(
+        key="photo_retention",
+        field="photo_retention_days",
+        native_min_value=1,
+        native_max_value=365,
+        native_step=1,
+        native_unit_of_measurement=UnitOfTime.DAYS,
+        mode=NumberMode.BOX,
+    ),
 )
 
 

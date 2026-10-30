@@ -9,6 +9,7 @@ Furbo hands back, so later sign-ins go through without another code.
 from __future__ import annotations
 
 import asyncio
+import base64
 from collections.abc import Callable
 from dataclasses import dataclass, field
 import datetime as dt
@@ -32,7 +33,15 @@ from furbo_cloud import (
     encrypt_password,
     new_mobile_id,
 )
-from furbo_p2p import CameraLink, P2PCredentials, P2PError, build_credentials, load_sdk
+from furbo_p2p import (
+    CameraLink,
+    P2PCredentials,
+    P2PError,
+    TossOutcome,
+    build_credentials,
+    load_sdk,
+)
+import photos as photos_mod
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -382,39 +391,71 @@ class Bridge:
             treat_counts=counts, last_toss=dt.datetime.now().astimezone().isoformat(timespec="seconds")
         )
 
-    async def toss(self, device_id: str | None = None, count: int = 1) -> dict[str, Any]:
-        """Toss ``count`` treats from one camera."""
+    async def toss(
+        self, device_id: str | None = None, count: int = 1, *, photos: bool = False
+    ) -> dict[str, Any]:
+        """Toss ``count`` treats from one camera, optionally with photos of each.
+
+        With photos, each toss comes back with a JPEG from 1 and 2 seconds after
+        it. A photo that fails is reported, never a reason to fail the toss.
+        """
         if not 1 <= count <= MAX_BURST:
             raise BridgeError("bad_request", f"count must be between 1 and {MAX_BURST}.")
         async with self._toss_lock:
             camera = self._pick_camera(device_id)
             self._check_limits(camera, count)
-            results = []
+            tosses = []
             for i in range(count):
                 if i:
                     await asyncio.sleep(BURST_SPACING)
-                results.append(await self._send(camera, "toss"))
-                # Only a treat that went out holds off the next request.
-                camera.last_toss_at = self._clock()
+                if photos:
+                    outcome: TossOutcome = await self._send(camera, lambda link: link.toss_with_photos())
+                    entry = {
+                        "result": outcome.result,
+                        "tossed_at": outcome.tossed_at_epoch,
+                        "photos": await self._encode_photos(outcome.clips),
+                        "photo_error": outcome.photo_error,
+                    }
+                    since_toss = time.monotonic() - outcome.tossed_at
+                    if outcome.photo_error:
+                        _LOGGER.warning("Treat photo: %s", outcome.photo_error)
+                else:
+                    result = await self._send(camera, lambda link: link.command("toss"))
+                    entry = {"result": result, "tossed_at": time.time()}
+                    since_toss = 0.0
+                # Only a treat that went out holds off the next request, timed
+                # from the moment it left rather than after the photos.
+                camera.last_toss_at = self._clock() - since_toss
                 self._count_treat()
+                tosses.append(entry)
             return {
                 "camera": camera.record.get("DeviceName"),
-                "results": results,
+                "results": [t["result"] for t in tosses],
+                "tosses": tosses,
                 "treats_today": self.treats_today(),
             }
+
+    async def _encode_photos(self, clips: dict[float, bytes]) -> list[dict[str, Any]]:
+        out = []
+        for offset, clip in sorted(clips.items()):
+            jpeg = await asyncio.to_thread(photos_mod.last_picture_jpeg, clip)
+            if jpeg:
+                out.append({"offset": offset, "jpeg": base64.b64encode(jpeg).decode()})
+        return out
 
     async def treat_sound(self, device_id: str | None = None) -> dict[str, Any]:
         """Play the treat-toss sound without tossing anything."""
         camera = self._pick_camera(device_id)
         return {
             "camera": camera.record.get("DeviceName"),
-            "results": [await self._send(camera, "treat_sound")],
+            "results": [await self._send(camera, lambda link: link.command("treat_sound"))],
         }
 
-    async def _send(self, camera: _Camera, command: str) -> str:
+    async def _send(self, camera: _Camera, action: Callable[[CameraLink], Any]) -> Any:
+        """Run ``action`` on the camera's link, opening one if needed."""
         if camera.link and camera.link.is_open:
             try:
-                return await asyncio.to_thread(self._send_blocking, camera, command, None)
+                return await asyncio.to_thread(self._send_blocking, camera, action, None)
             except BridgeError as err:
                 # A link left open can die without notice (the camera rebooted,
                 # Wi-Fi dropped). Nothing was dispensed, so reconnect once.
@@ -422,9 +463,11 @@ class Bridge:
                     raise
                 _LOGGER.info("Reconnecting to %s: %s", camera.record.get("DeviceName"), err)
         creds = await self._p2p_credentials(camera)
-        return await asyncio.to_thread(self._send_blocking, camera, command, creds)
+        return await asyncio.to_thread(self._send_blocking, camera, action, creds)
 
-    def _send_blocking(self, camera: _Camera, command: str, creds: P2PCredentials | None) -> str:
+    def _send_blocking(
+        self, camera: _Camera, action: Callable[[CameraLink], Any], creds: P2PCredentials | None
+    ) -> Any:
         with camera.lock:
             if camera.close_timer:
                 camera.close_timer.cancel()
@@ -434,7 +477,7 @@ class Bridge:
                         raise BridgeError("camera", "The camera link closed.")
                     camera.link = self._link_factory(creds)
                     camera.link.open()
-                return camera.link.command(command)
+                return action(camera.link)
             except P2PError as err:
                 self._close_link(camera)
                 raise BridgeError("camera", str(err)) from err

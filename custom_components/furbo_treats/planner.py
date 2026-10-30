@@ -48,6 +48,9 @@ class ScheduleSettings:
     triple_chance: int = 25  # percent
     # Seconds from a treat to its double launch, and from a double to its triple.
     bonus_delay_seconds: int = 30
+    # Photos 1 and 2 seconds after every toss, kept this many days.
+    photos_enabled: bool = True
+    photo_retention_days: int = 14
 
     @property
     def min_gap(self) -> dt.timedelta:

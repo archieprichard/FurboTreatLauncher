@@ -6,9 +6,10 @@ from typing import Any
 
 import aiohttp
 
-# Opening a camera link can take ~40 s and a 5-treat burst adds ~25 s more. Give
-# up too early and a treat that did go out looks failed, inviting a retry.
-TIMEOUT = aiohttp.ClientTimeout(total=120)
+# Opening a camera link can take ~40 s; with photos each toss adds up to ~10 s
+# (video start, 2 s of frames, decoding), so a 5-treat burst needs ~2 minutes.
+# Give up too early and a treat that did go out looks failed, inviting a retry.
+TIMEOUT = aiohttp.ClientTimeout(total=180)
 
 
 class BridgeError(Exception):
@@ -84,8 +85,10 @@ class BridgeClient:
     async def resend_code(self) -> dict[str, Any]:
         return await self._request("POST", "/login/resend", {})
 
-    async def toss(self, device_id: str, count: int = 1) -> dict[str, Any]:
-        return await self._request("POST", "/toss", {"device_id": device_id, "count": count})
+    async def toss(self, device_id: str, count: int = 1, *, photos: bool = False) -> dict[str, Any]:
+        return await self._request(
+            "POST", "/toss", {"device_id": device_id, "count": count, "photos": photos}
+        )
 
     async def treat_sound(self, device_id: str) -> dict[str, Any]:
         return await self._request("POST", "/treat-sound", {"device_id": device_id})

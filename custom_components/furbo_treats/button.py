@@ -37,12 +37,12 @@ class FurboButton(FurboEntity, ButtonEntity):
     """A one-press camera command."""
 
     async def async_press(self) -> None:
-        client = self.coordinator.client
+        data = self.coordinator.config_entry.runtime_data
         try:
             if self._attr_translation_key == "toss_treat":
-                await client.toss(self.camera_id)
+                await data.schedules.async_toss(self.camera_id)  # saves photos too
             else:
-                await client.treat_sound(self.camera_id)
+                await data.client.treat_sound(self.camera_id)
         except BridgeError as err:
             raise HomeAssistantError(str(err)) from err
         await self.coordinator.async_request_refresh()
