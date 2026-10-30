@@ -8,7 +8,8 @@
       "treats_per_day": { "default": "mdi:counter" },
       "min_gap": { "default": "mdi:timer-sand" },
       "double_chance": { "default": "mdi:dice-multiple" },
-      "triple_chance": { "default": "mdi:dice-multiple" }
+      "triple_chance": { "default": "mdi:dice-multiple" },
+      "bonus_delay": { "default": "mdi:timer-outline" }
     },
     "select": {
       "schedule_mode": {

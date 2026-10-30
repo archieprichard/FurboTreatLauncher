@@ -46,6 +46,8 @@ class ScheduleSettings:
     # Rolled only after a double launch went out.
     triple_enabled: bool = False
     triple_chance: int = 25  # percent
+    # Seconds from a treat to its double launch, and from a double to its triple.
+    bonus_delay_seconds: int = 30
 
     @property
     def min_gap(self) -> dt.timedelta:

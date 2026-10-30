@@ -40,10 +40,15 @@ _LOGGER = logging.getLogger(__name__)
 
 STORAGE_VERSION = 1
 RETRY_DELAY = dt.timedelta(minutes=2)
-BONUS_DELAY = 30  # seconds between a treat and its double or triple launch
 BONUS_NAMES = {2: "double", 3: "triple"}
 # Settings that only affect bonus launches, not when the day's treats happen.
-BONUS_FIELDS = ("double_enabled", "double_chance", "triple_enabled", "triple_chance")
+BONUS_FIELDS = (
+    "double_enabled",
+    "double_chance",
+    "triple_enabled",
+    "triple_chance",
+    "bonus_delay_seconds",
+)
 # Failures worth one more try: the bridge reports that the camera or Furbo was
 # unreachable, so nothing went out. Not "connection": when the bridge's answer
 # is lost the treat may well have been tossed, and a retry would double it.
@@ -298,14 +303,15 @@ class TreatScheduler:
         chance = getattr(self.settings, f"{name}_chance")
         if not enabled or self._rng.random() * 100 >= chance:
             return
-        result[f"{name}_launch_at"] = (now + dt.timedelta(seconds=BONUS_DELAY)).isoformat()
+        delay = max(1, self.settings.bonus_delay_seconds)
+        result[f"{name}_launch_at"] = (now + dt.timedelta(seconds=delay)).isoformat()
 
         async def fire(_when: dt.datetime) -> None:
             if unsub in self._bonus_timers:
                 self._bonus_timers.remove(unsub)
             await self._fire_bonus(shot)
 
-        unsub = async_call_later(self.hass, BONUS_DELAY, fire)
+        unsub = async_call_later(self.hass, delay, fire)
         self._bonus_timers.append(unsub)
 
     async def _fire_bonus(self, shot: int) -> None:

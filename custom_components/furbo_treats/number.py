@@ -63,6 +63,16 @@ NUMBERS = (
         native_unit_of_measurement=PERCENTAGE,
         mode=NumberMode.SLIDER,
     ),
+    ScheduleNumberDescription(
+        key="bonus_delay",
+        field="bonus_delay_seconds",
+        # Not below the bridge's default 5-second minimum interval.
+        native_min_value=5,
+        native_max_value=300,
+        native_step=1,
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        mode=NumberMode.BOX,
+    ),
 )
 
 

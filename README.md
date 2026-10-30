@@ -73,8 +73,9 @@ On the camera's device page:
 | **Schedule window start / end** | The daily window, e.g. 08:00–18:00 |
 | **Schedule mode** | *Fixed*: evenly spread. *Random*: new times every day |
 | **Minimum time between treats** | Honored strictly; if the count doesn't fit, it gives as many as fit |
-| **Double launch** / **Double launch chance** | After a scheduled treat, a chance of a second one 30 s later |
-| **Triple launch** / **Triple launch chance** | After a double launch, a chance of a third one 30 s after that |
+| **Double launch** / **Double launch chance** | After a scheduled treat, a chance of a second one |
+| **Triple launch** / **Triple launch chance** | After a double launch, a chance of a third one |
+| **Bonus launch delay** | Seconds from a treat to its double, and from a double to its triple (default 30) |
 | **Next scheduled treat** | When the next one goes; attributes list today's plan and any problem |
 
 ### How the schedule behaves
@@ -125,7 +126,7 @@ triggered:
 
 - **daily_limit** (default 20): the most treats per day. `0` turns it off.
 - **min_interval** (default 5 s): the shortest time between treat requests.
-  Keep it under 30 s if you use double or triple launches.
+  Keep it at or below the bonus launch delay if you use double or triple launches.
 
 ## Credits
 

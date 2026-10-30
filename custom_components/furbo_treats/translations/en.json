@@ -50,7 +50,8 @@
       "treats_per_day": { "name": "Treats per day" },
       "min_gap": { "name": "Minimum time between treats" },
       "double_chance": { "name": "Double launch chance" },
-      "triple_chance": { "name": "Triple launch chance" }
+      "triple_chance": { "name": "Triple launch chance" },
+      "bonus_delay": { "name": "Bonus launch delay" }
     },
     "select": {
       "schedule_mode": {

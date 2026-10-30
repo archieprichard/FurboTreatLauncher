@@ -75,10 +75,12 @@ class NextTreat(FurboScheduleEntity, SensorEntity):
                 f"({limit}); treats past the limit will be refused."
             )
         min_interval = (self.coordinator.data or {}).get("min_interval") or 0
-        if s.settings.double_enabled and min_interval > 30:
+        delay = s.settings.bonus_delay_seconds
+        if s.settings.double_enabled and min_interval > delay:
             problems.append(
-                f"The bridge's min_interval ({min_interval:g}s) is longer than the 30-second "
-                "double launch, so double launches will be refused. Lower it in the add-on."
+                f"The bridge's min_interval ({min_interval:g}s) is longer than the {delay}-second "
+                "bonus launch delay, so double and triple launches will be refused. "
+                "Lower min_interval in the add-on, or raise the delay."
             )
         if problems:
             attrs["problem"] = " ".join(problems)
