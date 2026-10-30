@@ -206,6 +206,8 @@ class TreatScheduler:
                 _LOGGER.warning("%s treat schedule: %s", self.camera_name, self.problem)
             self._replan(dt_util.now())
             self._arm()
+        if "photo_retention_days" in changes:
+            self._manager.clean_old_photos(dt_util.now().date())  # now, not at midnight
         self._changed()
 
     @callback
@@ -387,17 +389,17 @@ class ScheduleManager:
         for scheduler in self.schedulers.values():
             scheduler.async_start()
         self._unsub_midnight = async_track_time_change(self.hass, self._midnight, hour=0, minute=0, second=5)
-        self._clean_old_photos(dt_util.now().date())
+        self.clean_old_photos(dt_util.now().date())
 
     @callback
     def _midnight(self, now: dt.datetime) -> None:
         local = dt_util.as_local(now)
         for scheduler in self.schedulers.values():
             scheduler.new_day(local)
-        self._clean_old_photos(local.date())
+        self.clean_old_photos(local.date())
 
     @callback
-    def _clean_old_photos(self, today: dt.date) -> None:
+    def clean_old_photos(self, today: dt.date) -> None:
         if self.photos is None:
             return
         for s in self.schedulers.values():
